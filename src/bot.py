@@ -5,6 +5,8 @@ import re
 import requests
 
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.error import (TelegramError, Unauthorized, BadRequest, 
+                            TimedOut, ChatMigrated, NetworkError)
 
 # setting constants
 BOT_NAME = "FicTrackerBot"
@@ -56,31 +58,63 @@ def updates_handler(bot, update):
 # only messages with a fanfiction link will receive an answer
 def message_handler(bot, update):
     message = update.message.text
-    link, site = __parseMessage__(message)
+    link = __parseMessage__(message)
     if link is None:
         update.message.reply_text(NO_LINK_MESSAGE)
-    elif site is None:
-        update.message.reply_text(SITE_NOT_SUPPORTED_MESSAGE)
     else:
-        if __isValid__(link):
-            logger.info("User {} added a fanfic".format(update.effective_user["id"]))
-            # add fanfic to database
+        site = __siteFromLink__(link)
+        if site is not None:
+            if __isValid__(link):
+                logger.info("User {} added a fanfic".format(update.effective_user["id"]))
+                # add fanfic to database
+            else:
+                update.message.reply_text(FANFIC_NOT_EXIST_MESSAGE)
         else:
-            update.message.reply_text(FANFIC_NOT_EXIST_MESSAGE)
+            update.message.reply_text(SITE_NOT_SUPPORTED_MESSAGE)
+
+def link_handler(bot, update):
+
+
+# handler functions for errors
+def error_handler(bot, update, error):
+    try:
+        raise error
+    except Unauthorized:
+        # remove update.message.chat_id from conversation list
+        pass
+    except BadRequest:
+        # handle malformed requests - read more below!
+        pass
+    except TimedOut:
+        # handle slow connection problems
+        pass
+    except ChatMigrated:
+        # handle other connection problems
+        pass
+    except NetworkError:
+        # the chat_id of a group has changed, use e.new_chat_id instead
+        pass
+    except TelegramError:
+        # handle all other telegram related errors
+        pass
+
 
 # ------------------------------------------------------------------------------------- #
 
-# parsing message to find supported fanfic link
+# parsing message to find links
 def __parseMessage__(message):
     urls = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', message)
     if len(urls) > 1:
-        return None, None
+        return None
     else:
-        link = urls[0]
-        for site in SUPPORTED_SITES:
+        return urls[0]
+
+# returns the site of the link
+def __siteFromLink__(link):
+    for site in SUPPORTED_SITES:
             if site in link:
-                return link, site
-        return link, None
+                return site
+    return None
 
 # check if the link is reachable
 def __isValid__(link):
@@ -100,6 +134,7 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CommandHandler("start", start_handler))
     updater.dispatcher.add_handler(CommandHandler("updates", updates_handler))
     updater.dispatcher.add_handler(MessageHandler(Filters.text, message_handler))
+    updater.dispatcher.add_error_handler(error_handler)
     # starting bot
     run(updater)
 
