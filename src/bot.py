@@ -1,9 +1,11 @@
 import logging
 import os
-import sys
+import psycopg2
 import re
 import requests
+import sys
 
+from telegram import MessageEntity
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from telegram.error import (TelegramError, Unauthorized, BadRequest, 
                             TimedOut, ChatMigrated, NetworkError)
@@ -18,6 +20,10 @@ WELCOME_MESSAGE = ("Hi! I'm " + BOT_NAME + ", and I can help you track updates "
 NO_LINK_MESSAGE = "There is no link in this message!"
 SITE_NOT_SUPPORTED_MESSAGE = "This site is not supported!"
 FANFIC_NOT_EXIST_MESSAGE = "This link is not valid!"
+HELP_MESSAGE = ("/start - Starts the chat with the bot\n"
+                "/updates - To receive the fanfictions updated since the last request\n"
+                "/list - To list all the fanfictions being tracked\n"
+                "/remove - Must be followed by a fanfiction url, removes it from the tracking")
 SUPPORTED_SITES = ["archiveofourown.org"]
 
 # enabling logging
@@ -27,6 +33,7 @@ logger = logging.getLogger()
 # getting environment variables
 mode = os.getenv("MODE")
 TOKEN = os.getenv("TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # defining updater based on execution mode
 if mode == "dev":
@@ -54,9 +61,22 @@ def updates_handler(bot, update):
     logger.info("User {} requested their updates".format(update.effective_user["id"]))
     # read from database and send updates
 
-# handler function for normal messages
-# only messages with a fanfiction link will receive an answer
-def message_handler(bot, update):
+# handler function for /list command
+def list_handler(bot, update):
+    logger.info("User {} requested the list of their fanfictions".format(update.effective_user["id"]))
+    # read from database and send list
+
+# handler function for /help command
+def help_handler(bot, update):
+    update.message.reply_text(HELP_MESSAGE)
+
+# handler message for /remove command
+def remove_handler(bot, update):
+    logger.info("User {} asked to remove {} from their fanfictions".format(update.effective_user["id"], update.message.text))
+    # remove fanfiction from database
+
+# handler function for normal messages containing a link
+def link_handler(bot, update):
     message = update.message.text
     link = __parseMessage__(message)
     if link is None:
@@ -71,9 +91,6 @@ def message_handler(bot, update):
                 update.message.reply_text(FANFIC_NOT_EXIST_MESSAGE)
         else:
             update.message.reply_text(SITE_NOT_SUPPORTED_MESSAGE)
-
-def link_handler(bot, update):
-
 
 # handler functions for errors
 def error_handler(bot, update, error):
@@ -133,7 +150,10 @@ if __name__ == '__main__':
     # adding handlers to bot
     updater.dispatcher.add_handler(CommandHandler("start", start_handler))
     updater.dispatcher.add_handler(CommandHandler("updates", updates_handler))
-    updater.dispatcher.add_handler(MessageHandler(Filters.text, message_handler))
+    updater.dispatcher.add_handler(CommandHandler("list", list_handler))
+    updater.dispatcher.add_handler(CommandHandler("help", help_handler))
+    updater.dispatcher.add_handler(CommandHandler("remove", remove_handler))
+    updater.dispatcher.add_handler(MessageHandler(Filters.text & Filters.entity(MessageEntity.URL) | Filters.entity(MessageEntity.TEXT_LINK), link_handler))
     updater.dispatcher.add_error_handler(error_handler)
     # starting bot
     run(updater)
