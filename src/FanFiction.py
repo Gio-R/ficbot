@@ -47,7 +47,7 @@ class FanFiction():
             completeness = "yes"
         else:
             completeness = "no"
-        return "\"" + self.title + "\" by " + self.author + "; Last published chapter: " + str(self.chapters) + "; Complete: " + completeness + " --- " + self.url
+        return "\"" + self.title + "\" by " + self.author + "\n\tLast published chapter: " + str(self.chapters) + "\n\tComplete: " + completeness + "\n" + self.url + "\n"
 
     def __eq__(self, other): 
         if not isinstance(other, FanFic):

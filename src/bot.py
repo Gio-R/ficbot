@@ -24,9 +24,14 @@ FANFIC_NOT_EXIST_MESSAGE = "This link is not valid!"
 HELP_MESSAGE = ("/start - Starts the chat with the bot\n"
                 "/updates - To receive the fanfictions updated since the last request\n"
                 "/list - To list all the fanfictions being tracked\n"
-                "/remove - Must be followed by a fanfiction url, removes it from the tracking")
+                "/remove - Must be followed by a fanfiction url, removes it from the tracking\n"
+                "/setupdates - Activates/deactivates periodic updates")
 FANFICTION_ADDED_MESSAGE = "Fanfiction correctly added to tracking!"
-SUPPORTED_SITES = ["archiveofourown.org"]
+FANFICTION_REMOVED_MESSAGE = "Fanfiction correctly removed from tracking!"
+WAIT_MESSAGE = "This could require a bit of time. Be patient!"
+NO_UPDATES_MESSAGE = "There are no updates"
+UPDATES_SET = "Receiving periodic updates: {}"
+SUPPORTED_SITES = { "archiveofourown.org": FanFiction.AO3FanFic }
 
 # getting environment variables
 mode = os.getenv("MODE")
@@ -39,6 +44,7 @@ ADD_FANFICTION = "insert into fanfictions(id, url, chapters) select {0}, '{1}', 
 GET_USER_FANFICTION = "select url, chapters from fanfictions where id = {}"
 REMOVE_FANFICTION = "delete from fanfictions where id = {} and url = '{}'"
 SET_UPDATES = "update users set updates = {} where id = {}"
+GET_UPDATES = "select updates from users where id = {}"
 UPDATE_FANFICTION = "update fanfictions set chapters = {} where id = {} and url = '{}'"
 
 # enabling logging
@@ -70,18 +76,30 @@ def start_handler(bot, update):
 # handler function for /updates command
 def updates_handler(bot, update):
     logger.info("User {} requested their updates".format(update.effective_user["id"]))
-    # read from database and send updates
+    update.message.reply_text(WAIT_MESSAGE)
+    user_fics, success = __execute_query__(GET_USER_FANFICTION.format(update.effective_user["id"]))
+    updated_fics = []
+    for row in user_fics:
+        fic = SUPPORTED_SITES[__site_from_link__(row[0])](row[0])
+        if (fic.chapters != row[1]):
+            updated_fics.append(fic)
+            __execute_query__(UPDATE_FANFICTION.format(fic.chapters, update.effective_user["id"], row[0]))
+    if len(updated_fics) > 0:
+        message = __fanfictions_to_message__(updated_fics)
+    else:
+        message = NO_UPDATES_MESSAGE
+    update.message.reply_text(message)
+
 
 # handler function for /list command
 def list_handler(bot, update):
     logger.info("User {} requested the list of their fanfictions".format(update.effective_user["id"]))
-    query_result = __execute_query__(GET_USER_FANFICTION.format(update.effective_user["id"]))
+    update.message.reply_text(WAIT_MESSAGE)
+    query_result, success = __execute_query__(GET_USER_FANFICTION.format(update.effective_user["id"]))
     fanfictions = []
     for row in query_result:
         fanfictions.append(FanFiction.AO3FanFic(row[0]))
-    message = ""
-    for ff in fanfictions:
-        message = message + ff + "\n"
+    message = __fanfictions_to_message__(fanfictions)
     update.message.reply_text(message)
 
 # handler function for /help command
@@ -91,7 +109,10 @@ def help_handler(bot, update):
 # handler message for /remove command
 def remove_handler(bot, update):
     logger.info("User {} asked to remove {} from their fanfictions".format(update.effective_user["id"], update.message.text))
-    # remove fanfiction from database
+    link = __parse_message__(update.message.text)
+    query_result, success = __execute_query__(REMOVE_FANFICTION.format(update.effective_user["id"], link))
+    if success:
+        update.message.reply_text(FANFICTION_REMOVED_MESSAGE)
 
 # handler function for normal messages containing a link
 def link_handler(bot, update):
@@ -104,14 +125,24 @@ def link_handler(bot, update):
         if site is not None:
             if __is_valid__(link):
                 logger.info("User {} added a fanfic".format(update.effective_user["id"]))
-                fanfic = FanFiction.AO3FanFic(link)
-                query_result = __execute_query__(ADD_FANFICTION.format(update.effective_user["id"], fanfic.url, fanfic.chapters))
-                if query_result is not None:
+                fanfic = SUPPORTED_SITES[site](link)
+                query_result, success = __execute_query__(ADD_FANFICTION.format(update.effective_user["id"], fanfic.url, fanfic.chapters))
+                if success:
                     update.message.reply_text(FANFICTION_ADDED_MESSAGE)
             else:
                 update.message.reply_text(FANFIC_NOT_EXIST_MESSAGE)
         else:
             update.message.reply_text(SITE_NOT_SUPPORTED_MESSAGE)
+
+# handler function for /setupdates command
+def setupdates_handler(bot, update):
+    logger.info("User {} toggled their updates".format(update.effective_user["id"]))
+    query_result, success = __execute_query__(GET_UPDATES.format(update.effective_user["id"]))
+    for row in query_result:
+        value_to_set = not row[0]
+        q_result, succ = __execute_query__(SET_UPDATES.format(value_to_set, update.effective_user["id"]))
+        if succ:
+            update.message.reply_text(UPDATES_SET.format(value_to_set))
 
 # handler functions for errors
 def error_handler(bot, update, error):
@@ -149,7 +180,7 @@ def __parse_message__(message):
 
 # returns the site of the link
 def __site_from_link__(link):
-    for site in SUPPORTED_SITES:
+    for site in SUPPORTED_SITES.keys():
             if site in link:
                 return site
     return None
@@ -166,6 +197,7 @@ def __is_valid__(link):
 def __execute_query__(query):
     query_result = None
     conn = None
+    success = False
     try:
         # connection to database
         conn = psycopg2.connect(DATABASE_URL, sslmode='prefer')
@@ -178,13 +210,20 @@ def __execute_query__(query):
             query_result = cur.fetchall()
         # committing changes
         conn.commit()
+        success = True
     except (Exception, psycopg2.DatabaseError) as exception:
         # problems with the database
         logger.error(exception)
     finally:
         if conn is not None:
             conn.close()
-        return query_result
+        return query_result, success
+
+# returns a string listing the fanfictions present in a list
+def __fanfictions_to_message__(fanfictions):
+    message = ""
+    for ff in fanfictions:
+        message = message + str(ff) + "\n"
 
 # ------------------------------------------------------------------------------------- #
 
@@ -198,6 +237,7 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CommandHandler("list", list_handler))
     updater.dispatcher.add_handler(CommandHandler("help", help_handler))
     updater.dispatcher.add_handler(CommandHandler("remove", remove_handler))
+    updater.dispatcher.add_handler(CommandHandler("setupdates", setupdates_handler))
     updater.dispatcher.add_handler(MessageHandler(Filters.text & Filters.entity(MessageEntity.URL) | Filters.entity(MessageEntity.TEXT_LINK), link_handler))
     updater.dispatcher.add_error_handler(error_handler)
     # starting bot
