@@ -4,6 +4,7 @@ import psycopg2
 import re
 import requests
 import sys
+import FanFiction
 
 from telegram import MessageEntity
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
@@ -24,16 +25,25 @@ HELP_MESSAGE = ("/start - Starts the chat with the bot\n"
                 "/updates - To receive the fanfictions updated since the last request\n"
                 "/list - To list all the fanfictions being tracked\n"
                 "/remove - Must be followed by a fanfiction url, removes it from the tracking")
+FANFICTION_ADDED_MESSAGE = "Fanfiction correctly added to tracking!"
 SUPPORTED_SITES = ["archiveofourown.org"]
-
-# enabling logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger()
 
 # getting environment variables
 mode = os.getenv("MODE")
 TOKEN = os.getenv("TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# defining possible queries
+ADD_USER = "insert into users(id, updates) select {0}, False where not exists (select * from users where id = {0})"
+ADD_FANFICTION = "insert into fanfictions(id, url, chapters) select {0}, '{1}', {2} where not exists (select * from fanfictions where id = {0} and url = '{1}')"
+GET_USER_FANFICTION = "select url, chapters from fanfictions where id = {}"
+REMOVE_FANFICTION = "delete from fanfictions where id = {} and url = '{}'"
+SET_UPDATES = "update users set updates = {} where id = {}"
+UPDATE_FANFICTION = "update fanfictions set chapters = {} where id = {} and url = '{}'"
+
+# enabling logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger()
 
 # defining updater based on execution mode
 if mode == "dev":
@@ -55,6 +65,7 @@ else:
 def start_handler(bot, update):
     logger.info("User {} started bot".format(update.effective_user["id"]))
     update.message.reply_text(WELCOME_MESSAGE)
+    __execute_query__(ADD_USER.format(update.effective_user["id"]))
 
 # handler function for /updates command
 def updates_handler(bot, update):
@@ -64,7 +75,14 @@ def updates_handler(bot, update):
 # handler function for /list command
 def list_handler(bot, update):
     logger.info("User {} requested the list of their fanfictions".format(update.effective_user["id"]))
-    # read from database and send list
+    query_result = __execute_query__(GET_USER_FANFICTION.format(update.effective_user["id"]))
+    fanfictions = []
+    for row in query_result:
+        fanfictions.append(FanFiction.AO3FanFic(row[0]))
+    message = ""
+    for ff in fanfictions:
+        message = message + ff + "\n"
+    update.message.reply_text(message)
 
 # handler function for /help command
 def help_handler(bot, update):
@@ -78,15 +96,18 @@ def remove_handler(bot, update):
 # handler function for normal messages containing a link
 def link_handler(bot, update):
     message = update.message.text
-    link = __parseMessage__(message)
+    link = __parse_message__(message)
     if link is None:
         update.message.reply_text(NO_LINK_MESSAGE)
     else:
-        site = __siteFromLink__(link)
+        site = __site_from_link__(link)
         if site is not None:
-            if __isValid__(link):
+            if __is_valid__(link):
                 logger.info("User {} added a fanfic".format(update.effective_user["id"]))
-                # add fanfic to database
+                fanfic = FanFiction.AO3FanFic(link)
+                query_result = __execute_query__(ADD_FANFICTION.format(update.effective_user["id"], fanfic.url, fanfic.chapters))
+                if query_result is not None:
+                    update.message.reply_text(FANFICTION_ADDED_MESSAGE)
             else:
                 update.message.reply_text(FANFIC_NOT_EXIST_MESSAGE)
         else:
@@ -119,7 +140,7 @@ def error_handler(bot, update, error):
 # ------------------------------------------------------------------------------------- #
 
 # parsing message to find links
-def __parseMessage__(message):
+def __parse_message__(message):
     urls = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', message)
     if len(urls) > 1:
         return None
@@ -127,19 +148,43 @@ def __parseMessage__(message):
         return urls[0]
 
 # returns the site of the link
-def __siteFromLink__(link):
+def __site_from_link__(link):
     for site in SUPPORTED_SITES:
             if site in link:
                 return site
     return None
 
 # check if the link is reachable
-def __isValid__(link):
+def __is_valid__(link):
     page = requests.get(link)
     if page.status_code == 200:
         return True
     else:
         return False
+
+# executes the given query
+def __execute_query__(query):
+    query_result = None
+    conn = None
+    try:
+        # connection to database
+        conn = psycopg2.connect(DATABASE_URL, sslmode='prefer')
+        # creating cursor
+        cur = conn.cursor()
+        # executing query
+        cur.execute(query)
+        # collecting results, if presents
+        if cur.description is not None:
+            query_result = cur.fetchall()
+        # committing changes
+        conn.commit()
+    except (Exception, psycopg2.DatabaseError) as exception:
+        # problems with the database
+        logger.error(exception)
+    finally:
+        if conn is not None:
+            conn.close()
+        return query_result
 
 # ------------------------------------------------------------------------------------- #
 
