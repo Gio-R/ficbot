@@ -30,6 +30,7 @@ FANFICTION_ADDED_MESSAGE = "Fanfiction correctly added to tracking!"
 FANFICTION_REMOVED_MESSAGE = "Fanfiction correctly removed from tracking!"
 WAIT_MESSAGE = "This could require a bit of time. Be patient!"
 NO_UPDATES_MESSAGE = "There are no updates"
+NO_UPDATES_DAILY_MESSAGE = "There are no updates today"
 UPDATES_SET = "Receiving periodic updates: {}"
 NO_LINK_TO_REMOVE_MESSAGE = ("There was no fanfiction to remove! "
                              "Please use /remove followed by the link of the fanfiction you want removed.")
@@ -48,6 +49,7 @@ REMOVE_FANFICTION = "delete from fanfictions where id = {} and url = '{}'"
 SET_UPDATES = "update users set updates = {} where id = {}"
 GET_UPDATES = "select updates from users where id = {}"
 UPDATE_FANFICTION = "update fanfictions set chapters = {} where id = {} and url = '{}'"
+GET_USERS = "select id, updates from users"
 
 # enabling logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -79,17 +81,9 @@ def start_handler(bot, update):
 def updates_handler(bot, update):
     logger.info("User {} requested their updates".format(update.effective_user["id"]))
     update.message.reply_text(WAIT_MESSAGE)
-    user_fics, success = __execute_query__(GET_USER_FANFICTION.format(update.effective_user["id"]))
-    updated_fics = []
-    for row in user_fics:
-        fic = SUPPORTED_SITES[__site_from_link__(row[0])](row[0])
-        if (fic.chapters != row[1]):
-            updated_fics.append((fic, row[1]))
-            __execute_query__(UPDATE_FANFICTION.format(fic.chapters, update.effective_user["id"], row[0]))
+    updated_fics = __get_updated_fics__(update.effective_user["id"])
     if len(updated_fics) > 0:
-        message = ""
-        for fic, last_chapter_read in updated_fics:
-            message = message + __fic_to_message__(fic, last_chapter_read)
+        message = __fics_to_message__(updated_fics)
     else:
         message = NO_UPDATES_MESSAGE
     update.message.reply_text(message)
@@ -229,6 +223,7 @@ def __execute_query__(query):
             conn.close()
         return query_result, success
 
+# custom toString for a fanfiction
 def __fic_to_message__(fic, last_chapter_read):
     if fic.complete:
         completeness = "yes"
@@ -237,6 +232,24 @@ def __fic_to_message__(fic, last_chapter_read):
     return ("\"" + fic.title + "\" by " + fic.author + "\n\tLast published chapter: " 
             + str(fic.chapters) + "\n\tLast read chapter: " + str(last_chapter_read) 
             + "\n\tComplete: " + completeness + "\n" + fic.url + "\n" + "\n")
+
+# return a string representing a list of fanfictions, using __fic_to_message__
+def __fics_to_message__(fanfics):
+    message = ""
+    for fic, last_chapter_read in updated_fics:
+        message = message + __fic_to_message__(fic, last_chapter_read)
+    return message
+
+# searches the updated fanfics of the given user
+def __get_updated_fics__(id):
+    user_fics, success = __execute_query__(GET_USER_FANFICTION.format(id))
+    updated_fics = []
+    for row in user_fics:
+        fic = SUPPORTED_SITES[__site_from_link__(row[0])](row[0])
+        if (fic.chapters != row[1]):
+            updated_fics.append((fic, row[1]))
+            __execute_query__(UPDATE_FANFICTION.format(fic.chapters, id, row[0]))
+    return updated_fics
 
 # ------------------------------------------------------------------------------------- #
 
@@ -255,5 +268,26 @@ if __name__ == '__main__':
     updater.dispatcher.add_error_handler(error_handler)
     # starting bot
     run(updater)
+
+# ------------------------------------------------------------------------------------- #
+
+# function for sending periodic updates
+def send_updates():
+    logger.info("Starting bot for updates")
+    # creating bot
+    updater = Updater(TOKEN)
+    # starting bot
+    run(updater)
+    # sending updates
+    query_result, success = __execute_query__(GET_USERS)
+    for row in query_result:
+        if row[1] == True:
+            updated_fics = __get_updated_fics__(row[0])
+            if len(updated_fics) > 0:
+                message = __fics_to_message__(updated_fics)
+            else:
+                message = NO_UPDATES_DAILY_MESSAGE
+            updater.bot.send_message(chat_id=row[0], text=message)
+
 
 
