@@ -31,6 +31,8 @@ FANFICTION_REMOVED_MESSAGE = "Fanfiction correctly removed from tracking!"
 WAIT_MESSAGE = "This could require a bit of time. Be patient!"
 NO_UPDATES_MESSAGE = "There are no updates"
 UPDATES_SET = "Receiving periodic updates: {}"
+NO_LINK_TO_REMOVE_MESSAGE = ("There was no fanfiction to remove! "
+                             "Please use /remove followed by the link of the fanfiction you want removed.")
 SUPPORTED_SITES = { "archiveofourown.org": FanFiction.AO3FanFic }
 
 # getting environment variables
@@ -40,8 +42,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # defining possible queries
 ADD_USER = "insert into users(id, updates) select {0}, False where not exists (select * from users where id = {0})"
-ADD_FANFICTION = "insert into fanfictions(id, url, chapters) select {0}, '{1}', {2} where not exists (select * from fanfictions where id = {0} and url = '{1}')"
-GET_USER_FANFICTION = "select url, chapters from fanfictions where id = {}"
+ADD_FANFICTION = "insert into fanfictions(id, url, chapters, title, author, completeness) select {0}, '{1}', {2}, '{3}', '{4}', {5} where not exists (select * from fanfictions where id = {0} and url = '{1}')"
+GET_USER_FANFICTION = "select url, chapters, title, author, completeness from fanfictions where id = {}"
 REMOVE_FANFICTION = "delete from fanfictions where id = {} and url = '{}'"
 SET_UPDATES = "update users set updates = {} where id = {}"
 GET_UPDATES = "select updates from users where id = {}"
@@ -82,24 +84,26 @@ def updates_handler(bot, update):
     for row in user_fics:
         fic = SUPPORTED_SITES[__site_from_link__(row[0])](row[0])
         if (fic.chapters != row[1]):
-            updated_fics.append(fic)
+            updated_fics.append((fic, row[1]))
             __execute_query__(UPDATE_FANFICTION.format(fic.chapters, update.effective_user["id"], row[0]))
     if len(updated_fics) > 0:
-        message = __fanfictions_to_message__(updated_fics)
+        message = ""
+        for fic, last_chapter_read in updated_fics:
+            message = message + __fic_to_message__(fic, last_chapter_read)
     else:
         message = NO_UPDATES_MESSAGE
     update.message.reply_text(message)
 
-
 # handler function for /list command
 def list_handler(bot, update):
     logger.info("User {} requested the list of their fanfictions".format(update.effective_user["id"]))
-    update.message.reply_text(WAIT_MESSAGE)
     query_result, success = __execute_query__(GET_USER_FANFICTION.format(update.effective_user["id"]))
     fanfictions = []
     for row in query_result:
-        fanfictions.append(FanFiction.AO3FanFic(row[0]))
-    message = __fanfictions_to_message__(fanfictions)
+        fanfictions.append(FanFiction.FanFiction(row[0], row[2], row[3], row[1], row[4]))
+    message = ""
+    for ff in fanfictions:
+        message = message + str(ff) + "\n"
     update.message.reply_text(message)
 
 # handler function for /help command
@@ -108,11 +112,14 @@ def help_handler(bot, update):
 
 # handler message for /remove command
 def remove_handler(bot, update):
-    logger.info("User {} asked to remove {} from their fanfictions".format(update.effective_user["id"], update.message.text))
+    logger.info("User {} asked to remove a tracked fanfiction".format(update.effective_user["id"]))
     link = __parse_message__(update.message.text)
-    query_result, success = __execute_query__(REMOVE_FANFICTION.format(update.effective_user["id"], link))
-    if success:
-        update.message.reply_text(FANFICTION_REMOVED_MESSAGE)
+    if link is not None:
+        query_result, success = __execute_query__(REMOVE_FANFICTION.format(update.effective_user["id"], link))
+        if success:
+            update.message.reply_text(FANFICTION_REMOVED_MESSAGE)
+    else:
+        update.message.reply_text(NO_LINK_TO_REMOVE_MESSAGE)
 
 # handler function for normal messages containing a link
 def link_handler(bot, update):
@@ -122,17 +129,17 @@ def link_handler(bot, update):
         update.message.reply_text(NO_LINK_MESSAGE)
     else:
         site = __site_from_link__(link)
-        if site is not None:
+        if site is None:
+            update.message.reply_text(SITE_NOT_SUPPORTED_MESSAGE)
+        else:
             if __is_valid__(link):
                 logger.info("User {} added a fanfic".format(update.effective_user["id"]))
                 fanfic = SUPPORTED_SITES[site](link)
-                query_result, success = __execute_query__(ADD_FANFICTION.format(update.effective_user["id"], fanfic.url, fanfic.chapters))
+                query_result, success = __execute_query__(ADD_FANFICTION.format(update.effective_user["id"], fanfic.url, fanfic.chapters, fanfic.title, fanfic.author, fanfic.complete))
                 if success:
                     update.message.reply_text(FANFICTION_ADDED_MESSAGE)
             else:
                 update.message.reply_text(FANFIC_NOT_EXIST_MESSAGE)
-        else:
-            update.message.reply_text(SITE_NOT_SUPPORTED_MESSAGE)
 
 # handler function for /setupdates command
 def setupdates_handler(bot, update):
@@ -147,6 +154,7 @@ def setupdates_handler(bot, update):
 # handler functions for errors
 def error_handler(bot, update, error):
     try:
+        logger.error(error)
         raise error
     except Unauthorized:
         # remove update.message.chat_id from conversation list
@@ -166,14 +174,16 @@ def error_handler(bot, update, error):
     except TelegramError:
         # handle all other telegram related errors
         pass
-
+    except Exception:
+        # handle other errors
+        pass
 
 # ------------------------------------------------------------------------------------- #
 
 # parsing message to find links
 def __parse_message__(message):
     urls = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', message)
-    if len(urls) > 1:
+    if len(urls) != 1:
         return None
     else:
         return urls[0]
@@ -219,11 +229,14 @@ def __execute_query__(query):
             conn.close()
         return query_result, success
 
-# returns a string listing the fanfictions present in a list
-def __fanfictions_to_message__(fanfictions):
-    message = ""
-    for ff in fanfictions:
-        message = message + str(ff) + "\n"
+def __fic_to_message__(fic, last_chapter_read):
+    if fic.complete:
+        completeness = "yes"
+    else:
+        completeness = "no"
+    return ("\"" + fic.title + "\" by " + fic.author + "\n\tLast published chapter: " 
+            + str(fic.chapters) + "\n\tLast read chapter: " + str(last_chapter_read) 
+            + "\n\tComplete: " + completeness + "\n" + fic.url + "\n" + "\n")
 
 # ------------------------------------------------------------------------------------- #
 
