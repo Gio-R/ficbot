@@ -212,7 +212,7 @@ def __execute_query__(query, named_values):
     success = False
     try:
         # connection to database
-        conn = psycopg2.connect(DATABASE_URL, sslmode='prefer')
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         # creating cursor
         cur = conn.cursor()
         # executing query
