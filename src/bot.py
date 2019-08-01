@@ -6,6 +6,7 @@ import requests
 import sys
 import FanFiction
 
+from psycopg2 import sql
 from telegram import MessageEntity
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from telegram.error import (TelegramError, Unauthorized, BadRequest, 
@@ -32,25 +33,17 @@ WAIT_MESSAGE = "This could require a bit of time. Be patient!"
 NO_FANFICTIONS_IN_TRACKING = "You are not following any fanfiction!"
 NO_UPDATES_MESSAGE = "There are no updates"
 NO_UPDATES_DAILY_MESSAGE = "There are no updates today"
-UPDATES_SET = "Receiving periodic updates: {}"
+UPDATES_SET = "Receiving periodic updates: {} (not abilitated)"
 NO_LINK_TO_REMOVE_MESSAGE = ("There was no fanfiction to remove! "
                              "Please use /remove followed by the link of the fanfiction you want removed.")
+USERS_TABLE = "users"
+FANFICTIONS_TABLE = "fanfictions"
 SUPPORTED_SITES = { "archiveofourown.org": FanFiction.AO3FanFic }
 
 # getting environment variables
 mode = os.getenv("MODE")
 TOKEN = os.getenv("TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
-
-# defining possible queries
-ADD_USER = "insert into users(id, updates) select {0}, False where not exists (select * from users where id = {0})"
-ADD_FANFICTION = "insert into fanfictions(id, url, chapters, title, author, completeness) select {0}, '{1}', {2}, '{3}', '{4}', {5} where not exists (select * from fanfictions where id = {0} and url = '{1}')"
-GET_USER_FANFICTION = "select url, chapters, title, author, completeness from fanfictions where id = {}"
-REMOVE_FANFICTION = "delete from fanfictions where id = {} and url = '{}'"
-SET_UPDATES = "update users set updates = {} where id = {}"
-GET_UPDATES = "select updates from users where id = {}"
-UPDATE_FANFICTION = "update fanfictions set chapters = {} where id = {} and url = '{}'"
-GET_USERS = "select id, updates from users"
 
 # enabling logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -76,7 +69,8 @@ else:
 def start_handler(bot, update):
     logger.info("User {} started bot".format(update.effective_user["id"]))
     update.message.reply_text(WELCOME_MESSAGE)
-    __execute_query__(ADD_USER.format(update.effective_user["id"]))
+    query, named_values = __get_insert_query__(["id", "updates"], ["id"], [update.effective_user["id"], False], USERS_TABLE)
+    __execute_query__(query, named_values)
 
 # handler function for /updates command
 def updates_handler(bot, update):
@@ -92,17 +86,19 @@ def updates_handler(bot, update):
 # handler function for /list command
 def list_handler(bot, update):
     logger.info("User {} requested the list of their fanfictions".format(update.effective_user["id"]))
-    query_result, success = __execute_query__(GET_USER_FANFICTION.format(update.effective_user["id"]))
-    fanfictions = []
-    for row in query_result:
-        fanfictions.append(FanFiction.FanFiction(row[0], row[2], row[3], row[1], row[4]))
-    if len(fanfictions) > 0:
-        message = ""
-        for ff in fanfictions:
-            message = message + str(ff) + "\n"
-    else:
-        message = NO_FANFICTIONS_IN_TRACKING
-    update.message.reply_text(message)
+    where_dict = { "id" : update.effective_user["id"] }
+    user_fics, success = __execute_query__(__get_select_query__(["url", "chapters", "title", "author", "completeness"], where_dict.keys(), FANFICTIONS_TABLE), where_dict)
+    if user_fics is not None:
+        fanfictions = []
+        for row in user_fics:
+            fanfictions.append(FanFiction.FanFiction(row[0], row[2], row[3], row[1], row[4]))
+        if len(fanfictions) > 0:
+            message = ""
+            for ff in fanfictions:
+                message = message + str(ff) + "\n"
+        else:
+            message = NO_FANFICTIONS_IN_TRACKING
+        update.message.reply_text(message)
 
 
 # handler function for /help command
@@ -134,7 +130,11 @@ def link_handler(bot, update):
             if __is_valid__(link):
                 logger.info("User {} added a fanfic".format(update.effective_user["id"]))
                 fanfic = SUPPORTED_SITES[site](link)
-                query_result, success = __execute_query__(ADD_FANFICTION.format(update.effective_user["id"], fanfic.url, fanfic.chapters, fanfic.title, fanfic.author, fanfic.complete))
+                query, named_values = __get_insert_query__(["id", "url", "chapters", "title", "author", "completeness"],
+                                                            ["id", "url"], 
+                                                            [update.effective_user["id"], fanfic.url, fanfic.chapters, fanfic.title, fanfic.author, fanfic.complete],
+                                                            FANFICTIONS_TABLE)
+                query_result, success = __execute_query__(query, named_values)
                 if success:
                     update.message.reply_text(FANFICTION_ADDED_MESSAGE)
             else:
@@ -143,10 +143,13 @@ def link_handler(bot, update):
 # handler function for /setupdates command
 def setupdates_handler(bot, update):
     logger.info("User {} toggled their updates".format(update.effective_user["id"]))
-    query_result, success = __execute_query__(GET_UPDATES.format(update.effective_user["id"]))
+    where_dict = {"id" : update.effective_user["id"]}
+    query_result, success = __execute_query__(__get_select_query__(["updates"], where_dict.keys(), USERS_TABLE), where_dict)
     for row in query_result:
         value_to_set = not row[0]
-        q_result, succ = __execute_query__(SET_UPDATES.format(value_to_set, update.effective_user["id"]))
+        updates_dict = {"updates": value_to_set}
+        where_dict = {"id" : update.effective_user["id"]}
+        q_result, succ = __execute_query__(__get_update_query__(updates_dict.keys(), where_dict.keys(), USERS_TABLE), {**updates_dict, **where_dict})
         if succ:
             update.message.reply_text(UPDATES_SET.format(value_to_set))
 
@@ -203,7 +206,7 @@ def __is_valid__(link):
         return False
 
 # executes the given query
-def __execute_query__(query):
+def __execute_query__(query, named_values):
     query_result = None
     conn = None
     success = False
@@ -213,7 +216,7 @@ def __execute_query__(query):
         # creating cursor
         cur = conn.cursor()
         # executing query
-        cur.execute(query)
+        cur.execute(query, named_values)
         # collecting results, if presents
         if cur.description is not None:
             query_result = cur.fetchall()
@@ -247,7 +250,8 @@ def __fics_to_message__(fanfics):
 
 # searches the updated fanfics of the given user
 def __get_updated_fics__(id):
-    user_fics, success = __execute_query__(GET_USER_FANFICTION.format(id))
+    where_dict = {"id" : id}
+    user_fics, success = __execute_query__(__get_select_query__(["url", "chapters", "title", "author", "completeness"], where_dict.keys(), FANFICTIONS_TABLE), where_dict)
     updated_fics = []
     for row in user_fics:
         link = row[0]
@@ -257,6 +261,55 @@ def __get_updated_fics__(id):
             updated_fics.append((fic, chapters))
             __execute_query__(UPDATE_FANFICTION.format(fic.chapters, id, link))
     return updated_fics
+
+# ------------------------------------------------------------------------------------- #
+
+# returns a query to insert values in the columns of a table, checking that the values of the keys are not repeated
+def __get_insert_query__(columns, keys, values, table):
+    named_values = dict(zip(columns, values))
+    query = sql.SQL("insert into {}({}) select {} where not exists (select * from {} where {})").format(
+                    sql.Identifier(table), 
+                    sql.SQL(",").join(map(sql.Identifier, columns)),
+                    sql.SQL(",").join(map(sql.Placeholder, columns)),
+                    sql.Identifier(table),
+                    sql.SQL(" and ").join([sql.SQL("{} = {}").format(sql.Identifier(c), sql.Placeholder(name=c)) for c in keys]))
+    return query, named_values
+
+# returns a query that select the columns in select_columns, checking the values in where_columns in a table
+def __get_select_query__(select_columns, where_columns, table):
+    if len(where_columns) > 0:
+        query = sql.SQL("select {} from {} where {}").format(
+                        sql.SQL(",").join(map(sql.Identifier, select_columns)),
+                        sql.Identifier(table),
+                        sql.SQL(" and ").join([sql.SQL("{} = {}").format(sql.Identifier(k), sql.Placeholder(name=k)) for k in where_columns]))
+    else:
+        query = sql.SQL("select {} from {}").format(
+                        sql.SQL(",").join(map(sql.Identifier, select_columns)),
+                        sql.Identifier(table))
+    return query
+
+# returns a query that updates the values in update_columns, checking the values of where_columns in a table
+def __get_update_query__(update_columns, where_columns, table):
+    if len(where_columns) > 0:
+        query = sql.SQL("update {} set {} where {}").format(
+                        sql.Identifier(table),
+                        sql.SQL(",").join([sql.SQL("{} = {}").format(sql.Identifier(c), sql.Placeholder(name=c)) for c in update_columns]),
+                        sql.SQL(" and ").join([sql.SQL("{} = {}").format(sql.Identifier(k), sql.Placeholder(name=k)) for k in where_columns]))
+    else:
+        query = sql.SQL("update {} set {}").format(
+                        sql.Identifier(table),
+                        sql.SQL(",").join([sql.SQL("{} = {}").format(sql.Identifier(c), sql.Placeholder(name=c)) for c in update_columns]))
+    return query
+
+# returns a query that removes the rows of table satisfying conditions on where_columns
+def __get_remove_query__(where_columns, table):
+    if len(where_columns) > 0:
+        query = sql.SQL("delete from {} where {}").format(
+                        sql.Identifier(table),
+                        sql.SQL(" and ").join([sql.SQL("{} = {}").format(sql.Identifier(k), sql.Placeholder(name=k)) for k in where_columns]))
+    else:
+        query = sql.SQL("delete from {}").format(sql.Identifier(table))
+    return query
 
 # ------------------------------------------------------------------------------------- #
 
@@ -286,7 +339,7 @@ def send_updates():
     # starting bot
     run(updater)
     # sending updates
-    query_result, success = __execute_query__(GET_USERS)
+    query_result, success = __execute_query__(__get_select_query__(["id", "updates"], [], USERS_TABLE), {})
     for row in query_result:
         if row[1] == True:
             updated_fics = __get_updated_fics__(row[0])
@@ -295,6 +348,3 @@ def send_updates():
             else:
                 message = NO_UPDATES_DAILY_MESSAGE
             updater.bot.send_message(chat_id=row[0], text=message)
-
-
-
