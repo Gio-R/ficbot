@@ -39,6 +39,7 @@ NO_LINK_TO_REMOVE_MESSAGE = ("There was no fanfiction to remove! "
                              "Please use /remove followed by the link of the fanfiction you want removed.")
 USERS_TABLE = "users"
 FANFICTIONS_TABLE = "fanfictions"
+MAX_MESSAGE_SIZE = 3000
 SUPPORTED_SITES = { "archiveofourown.org": FanFiction.AO3FanFic }
 
 # getting environment variables
@@ -83,7 +84,7 @@ def updates_handler(bot, update):
         message = __fics_to_message__(updated_fics)
     else:
         message = NO_UPDATES_MESSAGE
-    update.message.reply_text(message)
+    __send_message__(update, message)
 
 # handler function for /list command
 def list_handler(bot, update):
@@ -100,8 +101,7 @@ def list_handler(bot, update):
                 message = message + str(ff) + "\n"
         else:
             message = NO_FANFICTIONS_IN_TRACKING
-        update.message.reply_text(message)
-
+        __send_message__(update, message)
 
 # handler function for /help command
 def help_handler(bot, update):
@@ -257,6 +257,25 @@ def __get_updated_fics__(id):
             updated_fics.append((fic, chapters))
             __execute_query__(UPDATE_FANFICTION.format(fic.chapters, id, link))
     return updated_fics
+
+# sends a message checking if it's too long
+def __send_message__(update, message):
+    if len(message) > MAX_MESSAGE_SIZE:
+        pieces = message.split("\n\n")
+        while len(pieces) > 0:
+            m = ""
+            shorter = True
+            while shorter and len(pieces) > 0:
+                piece = pieces[0]
+                new_m = m + "\n\n" + piece
+                if len(new_m) < MAX_MESSAGE_SIZE:
+                    m = new_m
+                    pieces.pop(0)
+                else:
+                    shorter = False
+            update.message.reply_text(m)
+    else:
+        update.message.reply_text(message)
 
 # ------------------------------------------------------------------------------------- #
 
