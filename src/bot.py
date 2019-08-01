@@ -22,6 +22,7 @@ WELCOME_MESSAGE = ("Hi! I'm " + BOT_NAME + ", and I can help you track updates "
 NO_LINK_MESSAGE = "Please send one and only one link!"
 SITE_NOT_SUPPORTED_MESSAGE = "This site is not supported!"
 FANFIC_NOT_EXIST_MESSAGE = "This link is not valid!"
+ADD_PROBLEMS_MESSAGE = "There were problems in adding this fanfiction to tracking! Are you sure it exists?"
 HELP_MESSAGE = ("/start - Starts the chat with the bot\n"
                 "/updates - To receive the fanfictions updated since the last request\n"
                 "/list - To list all the fanfictions being tracked\n"
@@ -44,6 +45,7 @@ SUPPORTED_SITES = { "archiveofourown.org": FanFiction.AO3FanFic }
 mode = os.getenv("MODE")
 TOKEN = os.getenv("TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+SSL_DB = os.getenv("SSL_DB")
 
 # enabling logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -127,8 +129,8 @@ def link_handler(bot, update):
         if site is None:
             update.message.reply_text(SITE_NOT_SUPPORTED_MESSAGE)
         else:
-            if __is_valid__(link):
-                logger.info("User {} added a fanfic".format(update.effective_user["id"]))
+            try:
+                logger.info("User {} tried to add a fanfic".format(update.effective_user["id"]))
                 fanfic = SUPPORTED_SITES[site](link)
                 query, named_values = __get_insert_query__(["id", "url", "chapters", "title", "author", "completeness"],
                                                             ["id", "url"], 
@@ -136,9 +138,11 @@ def link_handler(bot, update):
                                                             FANFICTIONS_TABLE)
                 query_result, success = __execute_query__(query, named_values)
                 if success:
+                    logger.info("User {} added a fanfic".format(update.effective_user["id"]))
                     update.message.reply_text(FANFICTION_ADDED_MESSAGE)
-            else:
-                update.message.reply_text(FANFIC_NOT_EXIST_MESSAGE)
+            except Exception as ex:
+                update.message.reply_text(ADD_PROBLEMS_MESSAGE)
+                logger.error(ex)
 
 # handler function for /setupdates command
 def setupdates_handler(bot, update):
@@ -197,14 +201,6 @@ def __site_from_link__(link):
                 return site
     return None
 
-# check if the link is reachable
-def __is_valid__(link):
-    page = requests.get(link)
-    if page.status_code == 200:
-        return True
-    else:
-        return False
-
 # executes the given query
 def __execute_query__(query, named_values):
     query_result = None
@@ -212,7 +208,7 @@ def __execute_query__(query, named_values):
     success = False
     try:
         # connection to database
-        conn = psycopg2.connect(DATABASE_URL, sslmode='prefer')
+        conn = psycopg2.connect(DATABASE_URL, sslmode=SSL_DB)
         # creating cursor
         cur = conn.cursor()
         # executing query
