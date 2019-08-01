@@ -18,7 +18,7 @@ WELCOME_MESSAGE = ("Hi! I'm " + BOT_NAME + ", and I can help you track updates "
                     "Send me a message with a link to the fanfiction you are following, "
                     "and I will start to track it (only one link per message, please!)\n"
                     "I'm sorry, but at the moment I support only AO3 fanfics!")
-NO_LINK_MESSAGE = "There is no link in this message!"
+NO_LINK_MESSAGE = "Please send one and only one link!"
 SITE_NOT_SUPPORTED_MESSAGE = "This site is not supported!"
 FANFIC_NOT_EXIST_MESSAGE = "This link is not valid!"
 HELP_MESSAGE = ("/start - Starts the chat with the bot\n"
@@ -29,6 +29,7 @@ HELP_MESSAGE = ("/start - Starts the chat with the bot\n"
 FANFICTION_ADDED_MESSAGE = "Fanfiction correctly added to tracking!"
 FANFICTION_REMOVED_MESSAGE = "Fanfiction correctly removed from tracking!"
 WAIT_MESSAGE = "This could require a bit of time. Be patient!"
+NO_FANFICTIONS_IN_TRACKING = "You are not following any fanfiction!"
 NO_UPDATES_MESSAGE = "There are no updates"
 NO_UPDATES_DAILY_MESSAGE = "There are no updates today"
 UPDATES_SET = "Receiving periodic updates: {}"
@@ -95,10 +96,14 @@ def list_handler(bot, update):
     fanfictions = []
     for row in query_result:
         fanfictions.append(FanFiction.FanFiction(row[0], row[2], row[3], row[1], row[4]))
-    message = ""
-    for ff in fanfictions:
-        message = message + str(ff) + "\n"
+    if len(fanfictions) > 0:
+        message = ""
+        for ff in fanfictions:
+            message = message + str(ff) + "\n"
+    else:
+        message = NO_FANFICTIONS_IN_TRACKING
     update.message.reply_text(message)
+
 
 # handler function for /help command
 def help_handler(bot, update):
@@ -245,10 +250,12 @@ def __get_updated_fics__(id):
     user_fics, success = __execute_query__(GET_USER_FANFICTION.format(id))
     updated_fics = []
     for row in user_fics:
-        fic = SUPPORTED_SITES[__site_from_link__(row[0])](row[0])
-        if (fic.chapters != row[1]):
-            updated_fics.append((fic, row[1]))
-            __execute_query__(UPDATE_FANFICTION.format(fic.chapters, id, row[0]))
+        link = row[0]
+        chapters = row[1]
+        fic = SUPPORTED_SITES[__site_from_link__(link)](link)
+        if (fic.chapters != chapters):
+            updated_fics.append((fic, chapters))
+            __execute_query__(UPDATE_FANFICTION.format(fic.chapters, id, link))
     return updated_fics
 
 # ------------------------------------------------------------------------------------- #
