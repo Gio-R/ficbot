@@ -255,7 +255,9 @@ def __get_updated_fics__(id):
         fic = SUPPORTED_SITES[__site_from_link__(link)](link)
         if (fic.chapters != chapters):
             updated_fics.append((fic, chapters))
-            __execute_query__(UPDATE_FANFICTION.format(fic.chapters, id, link))
+            set_dict = {"chapters" : fic.chapters}
+            where_dict = {"id": id, "url" : fic.url}
+            __execute_query__(__get_update_query__(set_dict.keys(), where_dict.keys(), FANFICTIONS_TABLE), {**set_dict, **where_dict})
     return updated_fics
 
 # sends a message checking if it's too long
