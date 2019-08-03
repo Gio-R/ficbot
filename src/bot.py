@@ -240,7 +240,7 @@ def __fic_to_message__(fic, last_chapter_read):
 # return a string representing a list of fanfictions, using __fic_to_message__
 def __fics_to_message__(fanfics):
     message = ""
-    for fic, last_chapter_read in updated_fics:
+    for fic, last_chapter_read in fanfics:
         message = message + __fic_to_message__(fic, last_chapter_read)
     return message
 
