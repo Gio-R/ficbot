@@ -132,14 +132,17 @@ def link_handler(bot, update):
             try:
                 logger.info("User {} tried to add a fanfic".format(update.effective_user["id"]))
                 fanfic = SUPPORTED_SITES[site](link)
-                query, named_values = __get_insert_query__(["id", "url", "chapters", "title", "author", "completeness"],
-                                                            ["id", "url"], 
-                                                            [update.effective_user["id"], fanfic.url, fanfic.chapters, fanfic.title, fanfic.author, fanfic.complete],
-                                                            FANFICTIONS_TABLE)
-                query_result, success = __execute_query__(query, named_values)
-                if success:
-                    logger.info("User {} added a fanfic".format(update.effective_user["id"]))
-                    update.message.reply_text(FANFICTION_ADDED_MESSAGE)
+                if fanfic is not None:
+                    query, named_values = __get_insert_query__(["id", "url", "chapters", "title", "author", "completeness"],
+                                                                ["id", "url"], 
+                                                                [update.effective_user["id"], fanfic.url, fanfic.chapters, fanfic.title, fanfic.author, fanfic.complete],
+                                                                FANFICTIONS_TABLE)
+                    query_result, success = __execute_query__(query, named_values)
+                    if success:
+                        logger.info("User {} added a fanfic".format(update.effective_user["id"]))
+                        update.message.reply_text(FANFICTION_ADDED_MESSAGE)
+                else:
+                    update.message.reply_text(ADD_PROBLEMS_MESSAGE)
             except Exception as ex:
                 update.message.reply_text(ADD_PROBLEMS_MESSAGE)
                 logger.error(ex)
@@ -253,11 +256,13 @@ def __get_updated_fics__(id):
         link = row[0]
         chapters = row[1]
         fic = SUPPORTED_SITES[__site_from_link__(link)](link)
-        if (fic.chapters != chapters):
+        if fic is not None and (fic.chapters != chapters):
             updated_fics.append((fic, chapters))
             set_dict = {"chapters" : fic.chapters}
             where_dict = {"id": id, "url" : fic.url}
             __execute_query__(__get_update_query__(set_dict.keys(), where_dict.keys(), FANFICTIONS_TABLE), {**set_dict, **where_dict})
+        elif fic is None:
+            logger.info(link + " couldn't be checked")
     return updated_fics
 
 # sends a message checking if it's too long
