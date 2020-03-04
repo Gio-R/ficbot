@@ -1,30 +1,39 @@
+import logging
 import http.cookiejar
 import urllib.request
 from bs4 import BeautifulSoup
+
+# enabling logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger()
 
 def AO3FanFic(url):
     parsedUrl = ao3urlParsing(url)
     mature_url = parsedUrl + "?view_adult=true"
     cj = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler, urllib.request.HTTPCookieProcessor(cj))
-    page = opener.open(mature_url)
-    soup = BeautifulSoup(page.read(), "html.parser")
-    title = soup.find("h2",{"class":"title heading"}).text
-    title = " ".join(title.split())
-    author = soup.find("h3", {"class":"byline heading"}).text
-    author = " ".join(author.split())
-    chaptersInfo = soup.find("dd", {"class":"chapters"}).text
-    chapters = chaptersInfo.split("/")
-    lastChapter = int(chapters[0], 10)
-    if chapters[1] == "?":
-        complete = False
-    else:
-        endChapter = int(chapters[1], 10)
-        if endChapter == lastChapter:
-            complete = True
-        else:
+    try:
+        opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler, urllib.request.HTTPCookieProcessor(cj))
+        page = opener.open(mature_url)
+        soup = BeautifulSoup(page.read(), "html.parser")
+        title = soup.find("h2",{"class":"title heading"}).text
+        title = " ".join(title.split())
+        author = soup.find("h3", {"class":"byline heading"}).text
+        author = " ".join(author.split())
+        chaptersInfo = soup.find("dd", {"class":"chapters"}).text
+        chapters = chaptersInfo.split("/")
+        lastChapter = int(chapters[0], 10)
+        if chapters[1] == "?":
             complete = False
-    return FanFiction(parsedUrl, title, author, lastChapter, complete)
+        else:
+            endChapter = int(chapters[1], 10)
+            if endChapter == lastChapter:
+                complete = True
+            else:
+                complete = False
+        return FanFiction(parsedUrl, title, author, lastChapter, complete)
+    except urllib.error.HTTPError as e:
+        logger.error("HTTP Error " + str(e.code))
+        return None
 
 def ao3urlParsing(url):
     parsedUrl = url.split("chapters")[0]
