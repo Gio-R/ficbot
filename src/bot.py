@@ -255,10 +255,11 @@ def __get_updated_fics__(id):
     for row in user_fics:
         link = row[0]
         chapters = row[1]
+        complete = row[4]
         fic = SUPPORTED_SITES[__site_from_link__(link)](link)
-        if fic is not None and (fic.chapters != chapters):
+        if fic is not None and (fic.chapters != chapters or fic.complete != complete):
             updated_fics.append((fic, chapters))
-            set_dict = {"chapters" : fic.chapters}
+            set_dict = {"chapters" : fic.chapters, "completeness": fic.complete}
             where_dict = {"id": id, "url" : fic.url}
             __execute_query__(__get_update_query__(set_dict.keys(), where_dict.keys(), FANFICTIONS_TABLE), {**set_dict, **where_dict})
         elif fic is None:
