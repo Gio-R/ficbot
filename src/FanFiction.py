@@ -32,8 +32,12 @@ def AO3FanFic(url):
                 complete = False
         return FanFiction(parsedUrl, title, author, lastChapter, complete)
     except urllib.error.HTTPError as e:
-        logger.error("HTTP Error " + str(e.code))
+        logger.error("HTTP Error " + str(e.code) + " while examining " + url)
         return None
+    except:
+        logger.error("Error while examining " + url)
+        return None
+        
 
 def ao3urlParsing(url):
     parsedUrl = url.split("chapters")[0]
