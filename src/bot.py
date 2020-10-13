@@ -112,7 +112,9 @@ def remove_handler(bot, update):
     logger.info("User {} asked to remove a tracked fanfiction".format(update.effective_user["id"]))
     link = __parse_message__(update.message.text)
     if link is not None:
-        query_result, success = __execute_query__(REMOVE_FANFICTION.format(update.effective_user["id"], link))
+        where_dict = {"id": update.effective_user["id"], "url": link}
+        query = __get_remove_query__(where_dict.keys(), FANFICTIONS_TABLE)
+        query_result, success = __execute_query__(query, where_dict)
         if success:
             update.message.reply_text(FANFICTION_REMOVED_MESSAGE)
     else:
