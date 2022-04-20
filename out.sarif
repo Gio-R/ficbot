@@ -1,0 +1,143 @@
+{
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Bandit",
+          "rules": [
+            {
+              "id": "B104",
+              "name": "hardcoded_bind_all_interfaces",
+              "helpUri": "https://bandit.readthedocs.io/en/1.7.4/plugins/b104_hardcoded_bind_all_interfaces.html"
+            },
+            {
+              "id": "B110",
+              "name": "try_except_pass",
+              "helpUri": "https://bandit.readthedocs.io/en/1.7.4/plugins/b110_try_except_pass.html"
+            }
+          ]
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "endTimeUtc": "2022-04-20T18:57:20Z"
+        }
+      ],
+      "properties": {
+        "metrics": {
+          "_totals": {
+            "loc": 358,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "SEVERITY.LOW": 1,
+            "CONFIDENCE.LOW": 0,
+            "SEVERITY.MEDIUM": 1,
+            "CONFIDENCE.MEDIUM": 1,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.HIGH": 1
+          },
+          ".\\src\\FanFiction.py": {
+            "loc": 62,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          },
+          ".\\src\\bot.py": {
+            "loc": 296,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 1,
+            "SEVERITY.MEDIUM": 1,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 1,
+            "CONFIDENCE.HIGH": 1
+          }
+        }
+      },
+      "results": [
+        {
+          "message": {
+            "text": "Possible binding to all interfaces."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "        updater.start_webhook(listen=\"0.0.0.0\", port=PORT, url_path=TOKEN)\n"
+                  },
+                  "startLine": 63
+                },
+                "artifactLocation": {
+                  "uri": "src/bot.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "        HEROKU_APP_NAME = os.environ.get(\"HEROKU_APP_NAME\")\n        updater.start_webhook(listen=\"0.0.0.0\", port=PORT, url_path=TOKEN)\n        updater.bot.set_webhook(\"https://{}.herokuapp.com/{}\".format(HEROKU_APP_NAME, TOKEN))\n"
+                  },
+                  "endLine": 64,
+                  "startLine": 62
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "MEDIUM",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B104",
+          "ruleIndex": 0
+        },
+        {
+          "message": {
+            "text": "Try, Except, Pass detected."
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    except Exception:\n"
+                  },
+                  "startLine": 188
+                },
+                "artifactLocation": {
+                  "uri": "src/bot.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "        pass\n    except Exception:\n        # handle other errors\n"
+                  },
+                  "endLine": 189,
+                  "startLine": 187
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B110",
+          "ruleIndex": 1
+        }
+      ]
+    }
+  ],
+  "version": "2.1.0",
+  "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.4.json"
+}
