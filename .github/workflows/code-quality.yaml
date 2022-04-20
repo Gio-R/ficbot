@@ -1,0 +1,20 @@
+name: CodeQL
+on: 
+  push:
+    branches:
+      - 'master'
+      - 'heroku'
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "A ${{ github.event_name }} event happened, starting workflow."
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with: 
+          languages: python
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+      - run: echo "Job ended."
