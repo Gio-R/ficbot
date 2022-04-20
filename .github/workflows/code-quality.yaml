@@ -27,7 +27,7 @@ jobs:
         python-version: '3.6'
     - run: pip install bandit_sarif_formatter
     - run: pip install bandit
-    - run: bandit --format sarif --output out.sarif -r $GITHUB_WORKSPACE
+    - run: bandit --format sarif --output out.sarif --exit-zero -r $GITHUB_WORKSPACE
     - name: Upload SARIF file
       uses: github/codeql-action/upload-sarif@v2
       with:
